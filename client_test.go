@@ -246,10 +246,10 @@ func TestClientV1(t *testing.T) {
 		t.Errorf("light state on=%v bri=%v", on, bri)
 	}
 	scenes, _ := c.List(ctx, "scene")
-	if len(scenes) != 1 {
+	if len(scenes) != 2 || scenes[1].Str("metadata", "name") != "Relax" {
 		t.Fatalf("scenes %v", scenes)
 	}
-	if err := c.Put(ctx, "scene", scenes[0].ID(), map[string]any{"recall": map[string]any{"action": "active"}}); err != nil {
+	if err := c.Put(ctx, "scene", scenes[1].ID(), map[string]any{"recall": map[string]any{"action": "active"}}); err != nil {
 		t.Fatal(err)
 	}
 	v1.mu.Lock()

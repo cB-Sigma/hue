@@ -47,6 +47,61 @@ func v1SensorDev(mac string) string {
 
 const v1BridgeDev, v1BridgeSvc = "v1-bridge", "v1-bridge-service"
 
+// v1Home is the bridge_home resource made of v1 group 0 (every light).
+const v1Home = "v1-group-0"
+
+// v1GroupKind maps a v1 group type to the CLIP v2 resource type it is
+// served as: rooms and zones as such, entertainment groups as
+// entertainment configurations, and light groups (LightGroup, Luminaire,
+// LightSource, the groups of old apps and of multi-light fixtures) as
+// "light_group", a type of this client (CLIP v2 does not show them) with
+// a zone's shape. "" is a type this client does not know.
+func v1GroupKind(typ string) string {
+	switch typ {
+	case "Room":
+		return "room"
+	case "Zone":
+		return "zone"
+	case "Entertainment":
+		return "entertainment_configuration"
+	case "LightGroup", "Luminaire", "Lightsource", "LightSource":
+		return "light_group"
+	}
+	return ""
+}
+
+// v1ClassToArchetype turns a v1 group class ("Living room") into a CLIP v2
+// archetype ("living_room").
+func v1ClassToArchetype(class string) string {
+	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(class)), " ", "_")
+}
+
+// v1ArchetypeToClass turns a CLIP v2 archetype ("living_room") into a v1
+// group class ("Living room"); "Other" when empty.
+func v1ArchetypeToClass(arch string) string {
+	s := strings.ReplaceAll(strings.TrimSpace(arch), "_", " ")
+	if s == "" {
+		return "Other"
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// v1GroupedLight is the grouped_light of v1 group n, owned by gid.
+func v1GroupedLight(n, gid, ownerType string, anyOn bool, act map[string]any) map[string]any {
+	gl := v1GroupLight(n)
+	glr := map[string]any{"id": gl, "id_v1": "/groups/" + n, "owner": map[string]any{"rid": gid, "rtype": ownerType}, "on": map[string]any{"on": anyOn}}
+	if bri, ok := num(act["bri"]); ok {
+		glr["dimming"] = map[string]any{"brightness": round1(bri / 254 * 100)}
+	}
+	if _, ok := act["xy"]; ok {
+		glr["color"] = map[string]any{}
+	}
+	if _, ok := act["ct"]; ok {
+		glr["color_temperature"] = map[string]any{}
+	}
+	return glr
+}
+
 // V1Client speaks API v1 to one bridge. Set it as a Client's V1 to read
 // and change the bridge with CLIP v2 requests.
 type V1Client struct {
@@ -60,6 +115,7 @@ type V1Client struct {
 	res      map[string][]json.RawMessage // v2 resources by type, from state
 	lightNum map[string]string            // v2 light service ID → v1 light number
 	groupNum map[string]string            // v2 grouped_light ID → v1 group number
+	groupID  map[string]string            // v2 room, zone, light_group or entertainment_configuration ID → v1 group number
 	sceneOf  map[string][2]string         // v2 scene ID → v1 scene ID, v1 group number
 	lastBtn  map[string]string            // sensor number → lastupdated seen
 	lastMot  map[string]bool              // sensor number → presence seen
@@ -226,7 +282,7 @@ func (a *V1Client) build(st map[string]any) []Event {
 		r["type"] = t
 		res[t] = append(res[t], raw(r))
 	}
-	a.lightNum, a.groupNum, a.sceneOf = map[string]string{}, map[string]string{}, map[string][2]string{}
+	a.lightNum, a.groupNum, a.groupID, a.sceneOf = map[string]string{}, map[string]string{}, map[string]string{}, map[string][2]string{}
 	if a.lastBtn == nil {
 		a.lastBtn, a.lastMot = map[string]string{}, map[string]bool{}
 	}
@@ -284,63 +340,122 @@ func (a *V1Client) build(st map[string]any) []Event {
 	}
 
 	groups, _ := st["groups"].(map[string]any)
+	var roomIDs []any
+	anyLightOn := false
 	for _, n := range sortedKeys(groups) {
 		g, _ := groups[n].(map[string]any)
-		typ := str(g["type"])
-		t := "room"
-		switch typ {
-		case "Room":
-		case "Zone":
-			t = "zone"
-		default:
-			continue // LightGroup, Luminaire, Entertainment: not rooms
+		t := v1GroupKind(str(g["type"]))
+		if t == "" {
+			continue // a group type this client does not know
 		}
-		var children []any
+		gid, gl := v1Group(n), v1GroupLight(n)
+		a.groupID[gid] = n
+		var children, lightSvcs []any
 		ls, _ := g["lights"].([]any)
 		for _, x := range ls {
 			if ln, ok := x.(string); ok {
 				rt, rid := "device", v1LightDev(ln)
-				if t == "zone" {
+				if t != "room" {
 					rt, rid = "light", v1LightSvc(ln)
 				}
 				children = append(children, map[string]any{"rid": rid, "rtype": rt})
+				lightSvcs = append(lightSvcs, map[string]any{"rid": v1LightSvc(ln), "rtype": "light"})
 			}
 		}
-		gid, gl := v1Group(n), v1GroupLight(n)
+		if t == "entertainment_configuration" {
+			// An entertainment area: its lights, one channel per light in
+			// the order of the group, and whether a stream is active.
+			stream, _ := g["stream"].(map[string]any)
+			active, _ := stream["active"].(bool)
+			status := "inactive"
+			if active {
+				status = "active"
+			}
+			locs, _ := g["locations"].(map[string]any)
+			var channels, svcLocs []any
+			for i, x := range ls {
+				ln, _ := x.(string)
+				pos := map[string]any{"x": 0.0, "y": 0.0, "z": 0.0}
+				if p, ok := locs[ln].([]any); ok && len(p) >= 2 {
+					px, _ := num(p[0])
+					py, _ := num(p[1])
+					pos["x"], pos["y"] = px, py
+					if len(p) >= 3 {
+						pz, _ := num(p[2])
+						pos["z"] = pz
+					}
+				}
+				svc := map[string]any{"rid": v1LightSvc(ln), "rtype": "light"}
+				channels = append(channels, map[string]any{"channel_id": float64(i), "position": pos,
+					"members": []any{map[string]any{"service": svc, "index": 0.0}}})
+				svcLocs = append(svcLocs, map[string]any{"service": svc, "positions": []any{pos}})
+			}
+			cfgType := "3dspace"
+			if strings.EqualFold(str(g["class"]), "TV") {
+				cfgType = "screen"
+			}
+			add(t, map[string]any{"id": gid, "id_v1": "/groups/" + n, "metadata": map[string]any{"name": str(g["name"])},
+				"name": str(g["name"]), "configuration_type": cfgType, "status": status, "channels": channels,
+				"light_services": lightSvcs, "locations": map[string]any{"service_locations": svcLocs}})
+			continue
+		}
 		a.groupNum[gl] = n
-		add(t, map[string]any{"id": gid, "id_v1": "/groups/" + n, "metadata": map[string]any{"name": str(g["name"]), "archetype": strings.ToLower(str(g["class"]))},
-			"children": children, "services": []any{map[string]any{"rid": gl, "rtype": "grouped_light"}}})
+		r := map[string]any{"id": gid, "id_v1": "/groups/" + n, "metadata": map[string]any{"name": str(g["name"]), "archetype": v1ClassToArchetype(str(g["class"]))},
+			"children": children, "services": []any{map[string]any{"rid": gl, "rtype": "grouped_light"}}}
+		if t == "light_group" {
+			r["v1_type"] = str(g["type"])
+		}
+		if t == "room" {
+			roomIDs = append(roomIDs, map[string]any{"rid": gid, "rtype": "room"})
+		}
+		add(t, r)
 		gs, _ := g["state"].(map[string]any)
 		act, _ := g["action"].(map[string]any)
 		anyOn, _ := gs["any_on"].(bool)
-		glr := map[string]any{"id": gl, "id_v1": "/groups/" + n, "owner": map[string]any{"rid": gid, "rtype": t}, "on": map[string]any{"on": anyOn}}
-		if bri, ok := num(act["bri"]); ok {
-			glr["dimming"] = map[string]any{"brightness": round1(bri / 254 * 100)}
-		}
-		if _, ok := act["xy"]; ok {
-			glr["color"] = map[string]any{}
-		}
-		if _, ok := act["ct"]; ok {
-			glr["color_temperature"] = map[string]any{}
-		}
-		add("grouped_light", glr)
+		add("grouped_light", v1GroupedLight(n, gid, t, anyOn, act))
 	}
+	// Group 0 of API v1 is every light: the home and its grouped light.
+	for _, n := range sortedKeys(lights) {
+		l, _ := lights[n].(map[string]any)
+		s, _ := l["state"].(map[string]any)
+		if on, _ := s["on"].(bool); on {
+			anyLightOn = true
+		}
+	}
+	a.groupNum[v1GroupLight("0")] = "0"
+	add("bridge_home", map[string]any{"id": v1Home, "id_v1": "/groups/0", "children": roomIDs,
+		"services": []any{map[string]any{"rid": v1GroupLight("0"), "rtype": "grouped_light"}}})
+	add("grouped_light", v1GroupedLight("0", v1Home, "bridge_home", anyLightOn, nil))
 
 	scenes, _ := st["scenes"].(map[string]any)
 	for _, id := range sortedKeys(scenes) {
 		s, _ := scenes[id].(map[string]any)
 		g := str(s["group"])
-		if g == "" || groups[g] == nil {
-			continue // a light scene without a room
-		}
-		t := "room"
-		if gm, _ := groups[g].(map[string]any); str(gm["type"]) == "Zone" {
-			t = "zone"
+		gref := map[string]any{"rid": v1Home, "rtype": "bridge_home"}
+		if gm, ok := groups[g].(map[string]any); ok && g != "" {
+			t := v1GroupKind(str(gm["type"]))
+			if t == "" || t == "entertainment_configuration" {
+				continue
+			}
+			gref = map[string]any{"rid": v1Group(g), "rtype": t}
+		} else {
+			g = "0" // a light scene: recalled through group 0
 		}
 		sid := v1Scene(id)
 		a.sceneOf[sid] = [2]string{id, g}
-		add("scene", map[string]any{"id": sid, "id_v1": "/scenes/" + id, "metadata": map[string]any{"name": str(s["name"])},
-			"group": map[string]any{"rid": v1Group(g), "rtype": t}, "status": map[string]any{"active": "inactive"}})
+		r := map[string]any{"id": sid, "id_v1": "/scenes/" + id, "metadata": map[string]any{"name": str(s["name"])},
+			"group": gref, "status": map[string]any{"active": "inactive"}}
+		if str(s["type"]) == "LightScene" {
+			var acts []any
+			ls, _ := s["lights"].([]any)
+			for _, x := range ls {
+				if ln, ok := x.(string); ok {
+					acts = append(acts, map[string]any{"target": map[string]any{"rid": v1LightSvc(ln), "rtype": "light"}, "action": map[string]any{}})
+				}
+			}
+			r["actions"] = acts
+		}
+		add("scene", r)
 	}
 
 	// Sensors: one physical device has several v1 sensors with the same
@@ -482,10 +597,14 @@ func firstNonEmpty(a, b string) string {
 	return b
 }
 
-// Do serves CLIP v2 requests from API v1: a GET of a resource type from
-// the v1 state (Refresh), a PUT of a light, grouped_light or scene (a
-// recall) as the v1 request that does the same. Other requests are an
-// *APIError.
+// Do serves CLIP v2 requests from API v1: a GET of a resource type (or
+// of one resource) from the v1 state (Refresh); a PUT of a light,
+// grouped_light, scene (a recall, or its name and light states), room,
+// zone or light_group (name, archetype, members) or
+// entertainment_configuration (action start or stop, as the group's
+// stream); a POST of a room, zone or scene; a DELETE of a room, zone,
+// light_group, entertainment_configuration or scene, each as the v1
+// requests that do the same. Other requests are an *APIError.
 func (a *V1Client) Do(ctx context.Context, method, path string, body any) ([]json.RawMessage, error) {
 	const prefix = "/clip/v2/resource/"
 	if !strings.HasPrefix(path, prefix) {
@@ -499,32 +618,227 @@ func (a *V1Client) Do(ctx context.Context, method, path string, body any) ([]jso
 		}
 		a.mu.Lock()
 		defer a.mu.Unlock()
-		return a.res[rtype], nil
+		if id == "" {
+			return a.res[rtype], nil
+		}
+		for _, raw := range a.res[rtype] {
+			var r struct {
+				ID string `json:"id"`
+			}
+			if json.Unmarshal(raw, &r) == nil && r.ID == id {
+				return []json.RawMessage{raw}, nil
+			}
+		}
+		return nil, &APIError{Status: http.StatusNotFound, Desc: []string{fmt.Sprintf("no v1 %s for %s", rtype, id)}}
 	}
-	if method != http.MethodPut {
-		return nil, &APIError{Status: http.StatusMethodNotAllowed}
+	m := toMap(body)
+	if method == http.MethodPost && id == "" {
+		// The lookups below need the current numbers.
+		if err := a.Refresh(ctx); err != nil {
+			return nil, err
+		}
 	}
-	m, _ := body.(map[string]any)
 	a.mu.Lock()
 	ln, isLight := a.lightNum[id]
 	gn, isGroup := a.groupNum[id]
+	gid, isGroupRes := a.groupID[id]
 	sc, isScene := a.sceneOf[id]
 	a.mu.Unlock()
 	var err error
+	var out []json.RawMessage
 	switch {
-	case rtype == "light" && isLight:
+	case method == http.MethodPut && rtype == "light" && isLight:
 		_, err = a.Request(ctx, http.MethodPut, "/lights/"+ln+"/state", V1State(m))
-	case rtype == "grouped_light" && isGroup:
+	case method == http.MethodPut && rtype == "grouped_light" && isGroup:
 		_, err = a.Request(ctx, http.MethodPut, "/groups/"+gn+"/action", V1State(m))
-	case rtype == "scene" && isScene:
-		_, err = a.Request(ctx, http.MethodPut, "/groups/"+sc[1]+"/action", map[string]any{"scene": sc[0]})
+	case method == http.MethodPut && rtype == "scene" && isScene:
+		if _, ok := m["recall"]; ok {
+			_, err = a.Request(ctx, http.MethodPut, "/groups/"+sc[1]+"/action", map[string]any{"scene": sc[0]})
+			break
+		}
+		err = a.putScene(ctx, sc[0], m)
+	case method == http.MethodPut && rtype == "entertainment_configuration" && isGroupRes:
+		act, _ := m["action"].(string)
+		if act != "start" && act != "stop" {
+			return nil, &APIError{Status: http.StatusBadRequest, Desc: []string{"action must be start or stop"}}
+		}
+		_, err = a.Request(ctx, http.MethodPut, "/groups/"+gid, map[string]any{"stream": map[string]any{"active": act == "start"}})
+	case method == http.MethodPut && (rtype == "room" || rtype == "zone" || rtype == "light_group") && isGroupRes:
+		_, err = a.Request(ctx, http.MethodPut, "/groups/"+gid, a.v1GroupBody(m, ""))
+	case method == http.MethodPost && id == "" && (rtype == "room" || rtype == "zone"):
+		v1typ := "Room"
+		if rtype == "zone" {
+			v1typ = "Zone"
+		}
+		var n string
+		n, err = a.create(ctx, "/groups", a.v1GroupBody(m, v1typ))
+		if err == nil {
+			out = []json.RawMessage{raw(map[string]any{"rid": v1Group(n), "rtype": rtype})}
+		}
+	case method == http.MethodPost && id == "" && rtype == "scene":
+		out, err = a.postScene(ctx, m)
+	case method == http.MethodDelete && (rtype == "room" || rtype == "zone" || rtype == "light_group" || rtype == "entertainment_configuration") && isGroupRes:
+		_, err = a.Request(ctx, http.MethodDelete, "/groups/"+gid, nil)
+		out = []json.RawMessage{raw(map[string]any{"rid": id, "rtype": rtype})}
+	case method == http.MethodDelete && rtype == "scene" && isScene:
+		_, err = a.Request(ctx, http.MethodDelete, "/scenes/"+sc[0], nil)
+		out = []json.RawMessage{raw(map[string]any{"rid": id, "rtype": rtype})}
+	case method != http.MethodPut && method != http.MethodPost && method != http.MethodDelete:
+		return nil, &APIError{Status: http.StatusMethodNotAllowed}
+	case method == http.MethodPost:
+		return nil, &APIError{Status: http.StatusMethodNotAllowed, Desc: []string{"API v1 cannot create a " + rtype}}
 	default:
 		return nil, &APIError{Status: http.StatusNotFound, Desc: []string{fmt.Sprintf("no v1 %s for %s", rtype, id)}}
 	}
 	a.mu.Lock()
 	a.stateAt = time.Time{} // read again next time
 	a.mu.Unlock()
-	return nil, err
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// toMap turns a request body into a JSON object.
+func toMap(body any) map[string]any {
+	if m, ok := body.(map[string]any); ok {
+		return m
+	}
+	if body == nil {
+		return nil
+	}
+	var m map[string]any
+	b, _ := json.Marshal(body)
+	_ = json.Unmarshal(b, &m)
+	return m
+}
+
+// v1LightOf is the v1 light number of a CLIP v2 light service or light
+// device ID this client made ("" when it is neither).
+func (a *V1Client) v1LightOf(rid string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if n, ok := a.lightNum[rid]; ok {
+		return n
+	}
+	for _, n := range a.lightNum {
+		if v1LightDev(n) == rid {
+			return n
+		}
+	}
+	return ""
+}
+
+// v1GroupBody turns a CLIP v2 room or zone body into a v1 group body
+// (typ "" for an update, which leaves the type).
+func (a *V1Client) v1GroupBody(m map[string]any, typ string) map[string]any {
+	out := map[string]any{}
+	if typ != "" {
+		out["type"] = typ
+	}
+	if md, ok := m["metadata"].(map[string]any); ok {
+		if name, ok := md["name"].(string); ok {
+			out["name"] = name
+		}
+		if arch, ok := md["archetype"].(string); ok && typ != "Zone" {
+			out["class"] = v1ArchetypeToClass(arch)
+		}
+	}
+	if typ == "Room" {
+		if _, ok := out["class"]; !ok {
+			out["class"] = "Other"
+		}
+	}
+	if ch, ok := m["children"].([]any); ok {
+		lights := []any{}
+		for _, c := range ch {
+			cm, _ := c.(map[string]any)
+			if n := a.v1LightOf(str(cm["rid"])); n != "" {
+				lights = append(lights, n)
+			}
+		}
+		out["lights"] = lights
+	}
+	return out
+}
+
+// create POSTs a v1 resource and returns its new ID.
+func (a *V1Client) create(ctx context.Context, path string, body map[string]any) (string, error) {
+	b, err := a.Request(ctx, http.MethodPost, path, body)
+	if err != nil {
+		return "", err
+	}
+	var items []struct {
+		Success *struct {
+			ID string `json:"id"`
+		} `json:"success"`
+	}
+	if json.Unmarshal(b, &items) != nil || len(items) == 0 || items[0].Success == nil || items[0].Success.ID == "" {
+		return "", ErrNoReference
+	}
+	return items[0].Success.ID, nil
+}
+
+// postScene creates a v1 scene from a CLIP v2 scene body: a group scene
+// of the room or zone, or a light scene of the home, then one light state
+// per action.
+func (a *V1Client) postScene(ctx context.Context, m map[string]any) ([]json.RawMessage, error) {
+	md, _ := m["metadata"].(map[string]any)
+	g, _ := m["group"].(map[string]any)
+	body := map[string]any{"name": str(md["name"]), "recycle": false}
+	a.mu.Lock()
+	gn, isGroup := a.groupID[str(g["rid"])]
+	a.mu.Unlock()
+	acts, _ := m["actions"].([]any)
+	switch {
+	case isGroup:
+		body["type"], body["group"] = "GroupScene", gn
+	case str(g["rid"]) == v1Home || str(g["rtype"]) == "bridge_home":
+		lights := []any{}
+		for _, x := range acts {
+			am, _ := x.(map[string]any)
+			t, _ := am["target"].(map[string]any)
+			if n := a.v1LightOf(str(t["rid"])); n != "" {
+				lights = append(lights, n)
+			}
+		}
+		body["type"], body["lights"] = "LightScene", lights
+	default:
+		return nil, &APIError{Status: http.StatusBadRequest, Desc: []string{"no v1 group for the scene's group " + str(g["rid"])}}
+	}
+	id, err := a.create(ctx, "/scenes", body)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.putScene(ctx, id, map[string]any{"actions": m["actions"]}); err != nil {
+		return nil, err
+	}
+	return []json.RawMessage{raw(map[string]any{"rid": v1Scene(id), "rtype": "scene"})}, nil
+}
+
+// putScene changes a v1 scene's name and light states.
+func (a *V1Client) putScene(ctx context.Context, id string, m map[string]any) error {
+	if md, ok := m["metadata"].(map[string]any); ok {
+		if name, ok := md["name"].(string); ok {
+			if _, err := a.Request(ctx, http.MethodPut, "/scenes/"+id, map[string]any{"name": name}); err != nil {
+				return err
+			}
+		}
+	}
+	acts, _ := m["actions"].([]any)
+	for _, x := range acts {
+		am, _ := x.(map[string]any)
+		t, _ := am["target"].(map[string]any)
+		act, _ := am["action"].(map[string]any)
+		n := a.v1LightOf(str(t["rid"]))
+		if n == "" {
+			return &APIError{Status: http.StatusBadRequest, Desc: []string{"no v1 light for " + str(t["rid"])}}
+		}
+		if _, err := a.Request(ctx, http.MethodPut, "/scenes/"+id+"/lightstates/"+n, V1State(act)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // V1State turns a v2 light or grouped_light body into a v1 state body:

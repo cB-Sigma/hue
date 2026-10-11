@@ -35,6 +35,7 @@ type peer struct {
 	name       string
 	httpAddr   string // 127.0.0.1:port of diyHue's HTTP port
 	httpsAddr  string // 127.0.0.1:port of its HTTPS port
+	udpAddr    string // 127.0.0.1:port of its entertainment port (UDP 2100)
 	certPEM    []byte // diyHue's certificate, read out of the container
 	beforeLink error  // Pair before the link button
 	pair       hue.PairResult
@@ -104,7 +105,7 @@ func need(t *testing.T) peer {
 func start() error {
 	the.name = fmt.Sprintf("sigma-hue-diyhue-%d", os.Getpid())
 	if _, err := docker("run", "-d", "--name", the.name, "-e", "MAC="+mac, "-e", "IP=127.0.0.1",
-		"-p", "127.0.0.1::80", "-p", "127.0.0.1::443", image); err != nil {
+		"-p", "127.0.0.1::80", "-p", "127.0.0.1::443", "-p", "127.0.0.1::2100/udp", image); err != nil {
 		return err
 	}
 	own = true
@@ -117,6 +118,10 @@ func start() error {
 	}
 	the.httpAddr = strings.Split(the.httpAddr, "\n")[0]
 	the.httpsAddr = strings.Split(the.httpsAddr, "\n")[0]
+	if the.udpAddr, err = docker("port", the.name, "2100/udp"); err != nil {
+		return err
+	}
+	the.udpAddr = strings.Split(the.udpAddr, "\n")[0]
 	// Wait for the public configuration.
 	hc := &http.Client{Timeout: 2 * time.Second}
 	deadline := time.Now().Add(90 * time.Second)

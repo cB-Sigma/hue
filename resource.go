@@ -20,6 +20,9 @@ func (r Resource) ID() string { s, _ := r["id"].(string); return s }
 // Type is the resource's type (light, device, room, …).
 func (r Resource) Type() string { s, _ := r["type"].(string); return s }
 
+// Ref is a reference to the resource.
+func (r Resource) Ref() Ref { return Ref{RID: r.ID(), RType: r.Type()} }
+
 // Get follows a path of object keys and returns the value there, or nil.
 func (r Resource) Get(path ...string) any {
 	var cur any = map[string]any(r)

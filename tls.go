@@ -8,8 +8,10 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -37,6 +39,47 @@ type TLSCheck struct {
 	// known): nil accepts it, an error refuses it. When nil, such a
 	// certificate is refused.
 	Unverified func(subject, fingerprint string, problems []string) error
+}
+
+// RootsFromPEM makes a pool of the certificates in PEM data, for
+// TLSCheck.Roots: the Hue bridge root CA (or CAs) the caller obtained, for
+// example from Signify's developer site. This module does not ship them
+// (see the README). An input without a certificate is an error.
+func RootsFromPEM(pemData []byte) (*x509.CertPool, error) {
+	pool := x509.NewCertPool()
+	n := 0
+	for rest := pemData; ; {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("certificate %d: %w", n+1, err)
+		}
+		if !cert.IsCA {
+			return nil, fmt.Errorf("certificate %d (%s) is not a CA", n+1, cert.Subject.CommonName)
+		}
+		pool.AddCert(cert)
+		n++
+	}
+	if n == 0 {
+		return nil, errors.New("no PEM certificate found")
+	}
+	return pool, nil
+}
+
+// LoadRoots is RootsFromPEM of a file.
+func LoadRoots(path string) (*x509.CertPool, error) {
+	b, err := os.ReadFile(path) //nolint:gosec // a path the caller chose
+	if err != nil {
+		return nil, err
+	}
+	return RootsFromPEM(b)
 }
 
 // Config is a tls.Config that runs the check (TLS 1.2 or later).

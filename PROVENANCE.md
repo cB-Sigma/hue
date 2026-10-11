@@ -20,6 +20,21 @@ its simulator moved to the separate module github.com/cB-Sigma/hue-sim;
 the library's own tests now run against a small fake bridge
 (fake_test.go) written for that purpose.
 
+v0.2.0 (2026-10-11) added, written for this module: creating, changing
+and deleting resources (create.go), typed views (models.go), the root
+CA loaders (tls.go), the API v1 handling of light groups, entertainment
+groups, light scenes and group 0 and the API v1 forms of creation and
+deletion (v1.go), and two nested modules: `entertainment/` (HueStream
+frames and the DTLS client on pion/dtls) and `discover/` (multicast DNS
+through github.com/cB-Sigma/mdns and the public endpoint). The HueStream
+layout, the DTLS parameters (cipher suite, PSK identity and key, UDP
+port 2100) and the CLIP v2 bodies for creation follow the public Hue
+developer documentation as far as it is readable without an account;
+diyHue's source (below) was read to confirm the frame layout it parses
+and how it runs its DTLS server. The sRGB to CIE xy conversion uses the
+sRGB matrix of IEC 61966-2-1, a published standard; no Hue-specific
+gamut code was taken.
+
 Before the split, existing Go libraries were checked and not used:
 openhue/openhue-go (Apache-2.0; a generated CLIP v2 client without the
 event stream or API v1), amimof/huego (MIT; API v1 only) and
@@ -37,6 +52,9 @@ the versions it names.
 | Certificate check (tls.go) | Philips Hue developer documentation, "Using HTTPS": the bridge ID as common name, the Hue root CA | none |
 | Light level (resource.go: LuxFromLightLevel) | the documented light_level scale, 10000·log10(lux)+1 | none |
 | API v1 (v1.go) | Philips Hue API v1 documentation (lights, groups, sensors, scenes, configuration, error types, buttonevent codes) | none |
+| Creation and deletion, typed views (create.go, models.go) | Philips Hue API v2 documentation, resource pages as far as public | openhue-api OpenAPI description (Apache-2.0), commit 1ffc817: field names cross-checked, nothing copied or generated |
+| Entertainment (entertainment/) | Philips Hue developer documentation on the Entertainment API (as far as public); pion/dtls API documentation | diyHue BridgeEmulator/services/entertainment.py at commit 3ee0461 (Apache-2.0): frame sizes and the openssl s_server parameters it uses, read to plan the interop test; aiohue's entertainment models (Apache-2.0): field names |
+| Discovery (discover/) | the bridge's mDNS announcement (_hue._tcp, TXT bridgeid and modelid) and the public endpoint's answer (id, internalipaddress, port) as documented on the Hue developer site | none |
 
 Parts of the API v2 documentation need a developer account and were not
 read for this work. The facts the client relies on that only those pages
@@ -75,6 +93,24 @@ That run found one bug, fixed with a regression test (TestClientV1 in
 client_test.go): `V1Client` gave light services no `metadata`, so the
 light's name and archetype, which CLIP v2 puts there, were missing for
 API v1 bridges.
+
+The v0.2.0 run (2026-10-11, same image) passed creation, change and
+deletion of rooms, zones, scenes and behaviours, and entertainment
+streaming end to end (DTLS handshake with diyHue's OpenSSL server, the
+colour applied to its light). It showed that diyHue lists a created room
+under another ID than its POST answer, so `Get` returns the single
+resource an ID lookup answers rather than insisting on the ID.
+diyHue's source at that commit was read (services/entertainment.py,
+flaskUI/v2restapi.py, HueObjects/EntertainmentConfiguration.py and
+BehaviorInstance.py) only to learn what its endpoints expect; nothing
+was taken from it.
+
+## The Hue root CA
+
+Signify publishes the bridge root CA certificates on its developer site
+behind a developer login, without terms that permit redistribution. The
+module does not ship them and offers `RootsFromPEM` and `LoadRoots` for
+the copy the caller obtains (decision of 2026-10-11).
 
 ## Test data
 

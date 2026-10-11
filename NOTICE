@@ -17,18 +17,38 @@ Philips or Signify; the names are used only to say which devices it
 talks to.
 
 The Hue bridge root CA is not included. A caller that wants the
-certificate chain verified supplies it (TLSCheck.Roots).
+certificate chain verified supplies it (TLSCheck.Roots, RootsFromPEM,
+LoadRoots).
+
+The typed views in models.go were written for this module. Their field
+names follow the bridge's JSON and were cross-checked against the
+openhue-api OpenAPI description (github.com/openhue/openhue-api, commit
+1ffc817 of 2026-04-15; Apache-2.0, Copyright the openhue authors). No
+text or code was copied and nothing was generated from it.
 
 Dependencies
 ------------
 
 - The Go standard library (BSD-3-Clause, Copyright The Go Authors).
 
+The nested modules in this repository have their own dependencies:
+
+- entertainment/ (github.com/cB-Sigma/hue/entertainment):
+  github.com/pion/dtls/v3 v3.1.10 (MIT, Copyright The Pion community),
+  with its dependencies github.com/pion/logging and
+  github.com/pion/transport/v5 (MIT, The Pion community) and
+  golang.org/x/crypto, golang.org/x/net and golang.org/x/sys
+  (BSD-3-Clause, The Go Authors).
+- discover/ (github.com/cB-Sigma/hue/discover): github.com/cB-Sigma/mdns
+  (Apache-2.0, Copyright 2026 Abhinav Gautam), with golang.org/x/net and
+  golang.org/x/sys (BSD-3-Clause, The Go Authors).
+
 Test peers
 ----------
 
 The nested test-only module interop/ is not part of the published
-module. It runs, in Docker, diyHue (github.com/diyhue/diyHue; Apache-2.0),
+module. It runs, in Docker, diyHue (github.com/diyhue/diyHue; its
+BridgeEmulator code is Apache-2.0, its Lights directory CC BY-NC 4.0),
 an open-source Hue bridge emulator, from its published image. No diyHue
 code is included in this repository.
 

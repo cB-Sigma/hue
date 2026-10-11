@@ -39,6 +39,9 @@ type fakeBridge struct {
 	plug    map[string]any
 	streams []chan string
 	last    map[string]any // the last POST /api body
+	created map[string]map[string]any
+	posts   []map[string]any
+	puts    []map[string]any
 }
 
 // The demo application key fakeBridge accepts.
@@ -49,7 +52,7 @@ const fakeKey = "fake-demo-app-key"
 func newFake(t *testing.T, id, cn string) *fakeBridge {
 	t.Helper()
 	cert, ca := issue(t, cn)
-	f := &fakeBridge{id: id, ca: ca, keys: map[string]bool{fakeKey: true},
+	f := &fakeBridge{id: id, ca: ca, keys: map[string]bool{fakeKey: true}, created: map[string]map[string]any{},
 		light: map[string]any{"id": "light-1", "type": "light", "owner": map[string]any{"rid": "dev-1", "rtype": "device"},
 			"metadata": map[string]any{"name": "Sofa lamp"}, "on": map[string]any{"on": true},
 			"color": map[string]any{"xy": map[string]any{"x": 0.3, "y": 0.3}}},
@@ -159,7 +162,65 @@ func (f *fakeBridge) serve(w http.ResponseWriter, r *http.Request) {
 		f.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(raw)
+	case r.URL.Path == "/auth/v1" && r.Method == http.MethodGet:
+		w.Header().Set("hue-application-id", "app-id-of-"+r.Header.Get("hue-application-key"))
+		w.WriteHeader(http.StatusOK)
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/clip/v2/resource/"):
+		rtype := strings.TrimPrefix(r.URL.Path, "/clip/v2/resource/")
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.posts = append(f.posts, map[string]any{"rtype": rtype, "body": body})
+		if rtype == "room" {
+			// A room's children must be known devices.
+			ch, _ := body["children"].([]any)
+			for _, c := range ch {
+				if cm, _ := c.(map[string]any); cm["rid"] != "dev-1" && cm["rid"] != "dev-2" {
+					clipErr(w, http.StatusBadRequest, fmt.Sprintf("invalid child %v", cm["rid"]))
+					return
+				}
+			}
+		}
+		id := fmt.Sprintf("new-%s-%d", rtype, len(f.posts))
+		stored := map[string]any{"id": id, "type": rtype}
+		for k, v := range body {
+			stored[k] = v
+		}
+		f.created[id] = stored
+		writeJSON(w, http.StatusOK, map[string]any{"errors": []any{}, "data": []any{map[string]any{"rid": id, "rtype": rtype}}})
+	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/clip/v2/resource/"):
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/clip/v2/resource/"), "/")
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if len(parts) != 2 || f.created[parts[1]] == nil {
+			clipErr(w, http.StatusNotFound, "resource not found")
+			return
+		}
+		delete(f.created, parts[1])
+		writeJSON(w, http.StatusOK, map[string]any{"errors": []any{}, "data": []any{map[string]any{"rid": parts[1], "rtype": parts[0]}}})
+	case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/clip/v2/resource/") && !strings.HasPrefix(r.URL.Path, "/clip/v2/resource/light/"):
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/clip/v2/resource/"), "/")
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		x := f.created[parts[len(parts)-1]]
+		if x == nil {
+			clipErr(w, http.StatusNotFound, "resource not found")
+			return
+		}
+		f.puts = append(f.puts, body)
+		for k, v := range body {
+			x[k] = v
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"errors": []any{}, "data": []any{map[string]any{"rid": x["id"], "rtype": parts[0]}}})
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/clip/v2/resource/"):
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/clip/v2/resource/"), "/")
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if len(parts) == 2 {
+			if x := f.created[parts[1]]; x != nil {
+				writeJSON(w, http.StatusOK, map[string]any{"errors": []any{}, "data": []any{x}})
+				return
+			}
+		}
 		clipErr(w, http.StatusNotFound, "resource not found")
 	case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/clip/v2/resource/light/"):
 		f.mu.Lock()
@@ -245,11 +306,12 @@ func issue(t *testing.T, cn string) (tls.Certificate, []byte) {
 // fakeV1 is a round bridge (API v1 over plain HTTP) with one colour light
 // in a room, a group scene and a dimmer switch.
 type fakeV1 struct {
-	srv   *httptest.Server
-	mu    sync.Mutex
-	link  bool
-	state map[string]any
-	puts  []string
+	srv    *httptest.Server
+	mu     sync.Mutex
+	link   bool
+	state  map[string]any
+	puts   []string
+	bodies []map[string]any
 }
 
 const fakeV1Key = "fake-v1-key"
@@ -262,8 +324,13 @@ func newFakeV1(t *testing.T) *fakeV1 {
 			"manufacturername": "Signify Netherlands B.V.", "uniqueid": "00:17:88:01:00:aa:bb:cc-0b", "config": map[string]any{"archetype": "sultanbulb"},
 			"state": map[string]any{"on": false, "bri": 127.0, "reachable": true, "colormode": "xy", "xy": []any{0.45, 0.41}}}},
 		"groups": map[string]any{"1": map[string]any{"name": "Living room", "type": "Room", "class": "Living room", "lights": []any{"1"},
-			"state": map[string]any{"all_on": false, "any_on": false}, "action": map[string]any{"on": false}}},
-		"scenes": map[string]any{"SceneDemo000001": map[string]any{"name": "Relax", "type": "GroupScene", "group": "1", "lights": []any{"1"}}},
+			"state": map[string]any{"all_on": false, "any_on": false}, "action": map[string]any{"on": false}},
+			"2": map[string]any{"name": "Wake-up lights", "type": "LightGroup", "lights": []any{"1"}, "state": map[string]any{"any_on": false}, "action": map[string]any{"on": false, "bri": 254.0}},
+			"3": map[string]any{"name": "TV area", "type": "Entertainment", "class": "TV", "lights": []any{"1"}, "state": map[string]any{"any_on": false},
+				"action": map[string]any{"on": false}, "stream": map[string]any{"active": false, "proxymode": "auto"},
+				"locations": map[string]any{"1": []any{-0.5, 0.25, 0.0}}}},
+		"scenes": map[string]any{"SceneDemo000001": map[string]any{"name": "Relax", "type": "GroupScene", "group": "1", "lights": []any{"1"}},
+			"LightScene00001": map[string]any{"name": "Reading", "type": "LightScene", "lights": []any{"1"}}},
 		"sensors": map[string]any{"7": map[string]any{"name": "Dimmer", "type": "ZLLSwitch", "modelid": "RWL021", "productname": "Hue dimmer switch",
 			"uniqueid": "00:17:88:01:03:00:11:22-02-fc00", "state": map[string]any{"buttonevent": 1002.0, "lastupdated": "2026-10-05T09:00:00"},
 			"config": map[string]any{"battery": 100.0}}},
@@ -300,6 +367,26 @@ func (f *fakeV1) serve(w http.ResponseWriter, r *http.Request) {
 		v1err(1, "unauthorized user")
 	case r.Method == http.MethodGet && len(parts) == 2:
 		writeJSON(w, http.StatusOK, f.state)
+	case r.Method == http.MethodPost && len(parts) == 3 && (parts[2] == "groups" || parts[2] == "scenes"):
+		f.puts = append(f.puts, "POST /"+parts[2])
+		f.bodies = append(f.bodies, body)
+		sec := f.state[parts[2]].(map[string]any)
+		id := fmt.Sprint(len(sec) + 10)
+		sec[id] = body
+		writeJSON(w, http.StatusOK, []any{map[string]any{"success": map[string]any{"id": id}}})
+	case r.Method == http.MethodDelete && len(parts) == 4:
+		f.puts = append(f.puts, "DELETE /"+parts[2]+"/"+parts[3])
+		sec, _ := f.state[parts[2]].(map[string]any)
+		if sec[parts[3]] == nil {
+			v1err(3, "resource not available")
+			return
+		}
+		delete(sec, parts[3])
+		writeJSON(w, http.StatusOK, []any{map[string]any{"success": "/" + parts[2] + "/" + parts[3] + " deleted"}})
+	case r.Method == http.MethodPut && (len(parts) == 4 || len(parts) == 6):
+		f.puts = append(f.puts, "/"+strings.Join(parts[2:], "/"))
+		f.bodies = append(f.bodies, body)
+		writeJSON(w, http.StatusOK, []any{map[string]any{"success": map[string]any{r.URL.Path: body}}})
 	case r.Method == http.MethodPut && len(parts) == 5:
 		f.puts = append(f.puts, "/"+strings.Join(parts[2:], "/"))
 		if parts[2] == "lights" && parts[3] != "1" {
