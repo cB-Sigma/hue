@@ -1,0 +1,41 @@
+hue (a Philips Hue bridge local API client, in Go)
+Copyright 2026 Abhinav Gautam
+
+This module is licensed under the Apache License, Version 2.0 (LICENSE).
+
+The code was written for SigmaM2M, a oneM2M platform, from the Philips
+Hue developer documentation as far as it is public (PROVENANCE.md). It
+contains no code from other projects. client.go and v1.go come from
+SigmaM2M and carry no per-file copyright header, the convention of the
+code they come from; the copyright line above covers them. Files added
+for this module carry "Copyright 2026 Abhinav Gautam" and
+"SPDX-License-Identifier: Apache-2.0".
+
+Philips and Hue are trademarks of Koninklijke Philips N.V., used under
+licence by Signify. This module is not made, endorsed or supported by
+Philips or Signify; the names are used only to say which devices it
+talks to.
+
+The Hue bridge root CA is not included. A caller that wants the
+certificate chain verified supplies it (TLSCheck.Roots).
+
+Dependencies
+------------
+
+- The Go standard library (BSD-3-Clause, Copyright The Go Authors).
+
+Test peers
+----------
+
+The nested test-only module interop/ is not part of the published
+module. It runs, in Docker, diyHue (github.com/diyhue/diyHue; Apache-2.0),
+an open-source Hue bridge emulator, from its published image. No diyHue
+code is included in this repository.
+
+Test data
+---------
+
+Every bridge ID, application key, client key, MAC address, device name,
+model number, firmware version and address in the tests and examples is
+a made-up demo value. Product and model names are the real names of
+product kinds, chosen to exercise each kind.
