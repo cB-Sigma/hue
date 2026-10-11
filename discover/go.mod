@@ -8,7 +8,7 @@ go 1.27.1
 replace github.com/cB-Sigma/hue => ../
 
 require (
-	github.com/cB-Sigma/hue v0.3.0
+	github.com/cB-Sigma/hue v0.3.1
 	github.com/cB-Sigma/mdns v0.2.0
 )
 

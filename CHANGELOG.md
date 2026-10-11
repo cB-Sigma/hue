@@ -3,6 +3,14 @@
 All notable changes to this module. Versions follow semantic versioning;
 before v1 the API may change in minor versions.
 
+## v0.3.1 (2026-10-12)
+
+### Fixed
+
+- A CLIP-shaped change through `V1Client` (`Put`, `Delete`) made before
+  any read was refused as an unknown resource; the client now reads the
+  bridge first. Found by a hue-sim test.
+
 ## v0.3.0 (2026-10-11)
 
 ### Added

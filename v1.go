@@ -633,8 +633,12 @@ func (a *V1Client) Do(ctx context.Context, method, path string, body any) ([]jso
 		return nil, &APIError{Status: http.StatusNotFound, Desc: []string{fmt.Sprintf("no v1 %s for %s", rtype, id)}}
 	}
 	m := toMap(body)
-	if method == http.MethodPost && id == "" {
-		// The lookups below need the current numbers.
+	a.mu.Lock()
+	unread := a.res == nil
+	a.mu.Unlock()
+	if (method == http.MethodPost && id == "") || unread {
+		// The lookups below need the current numbers (also for a change
+		// made before any read).
 		if err := a.Refresh(ctx); err != nil {
 			return nil, err
 		}

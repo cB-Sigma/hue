@@ -12,7 +12,7 @@ replace github.com/cB-Sigma/hue/entertainment => ../entertainment
 replace github.com/cB-Sigma/hue/discover => ../discover
 
 require (
-	github.com/cB-Sigma/hue v0.0.0
+	github.com/cB-Sigma/hue v0.3.1
 	github.com/cB-Sigma/hue/discover v0.0.0
 	github.com/cB-Sigma/hue/entertainment v0.0.0
 )

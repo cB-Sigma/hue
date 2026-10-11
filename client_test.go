@@ -217,6 +217,22 @@ func TestClientReadConfig(t *testing.T) {
 	}
 }
 
+// A change through V1Client before any read finds its target (it was
+// refused as unknown until something had been listed).
+func TestClientV1ChangeBeforeRead(t *testing.T) {
+	v1 := newFakeV1(t)
+	c := hue.NewClient(hue.Config{Address: v1.addr()})
+	c.V1 = hue.NewV1Client(v1.addr(), fakeV1Key, nil)
+	if err := c.Put(context.Background(), "grouped_light", "v1-group-1-light", map[string]any{"on": map[string]any{"on": true}}); err != nil {
+		t.Fatal(err)
+	}
+	v1.mu.Lock()
+	defer v1.mu.Unlock()
+	if len(v1.puts) != 1 || v1.puts[0] != "/groups/1/action" {
+		t.Errorf("puts %v", v1.puts)
+	}
+}
+
 func TestClientV1(t *testing.T) {
 	v1 := newFakeV1(t)
 	ctx := context.Background()

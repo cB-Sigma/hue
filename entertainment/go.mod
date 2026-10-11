@@ -8,7 +8,7 @@ go 1.24.0
 replace github.com/cB-Sigma/hue => ../
 
 require (
-	github.com/cB-Sigma/hue v0.3.0
+	github.com/cB-Sigma/hue v0.3.1
 	github.com/pion/dtls/v3 v3.1.10
 )
 
