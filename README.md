@@ -24,7 +24,11 @@ Not affiliated with Philips or Signify (see NOTICE).
 |---|---|
 | CLIP v2: GET, PUT, POST and DELETE of any resource type, error answers, partly applied changes (`Do`, `List`, `Get`, `Put`, `Post`, `Delete`) | yes |
 | Rooms, zones, scenes and behaviours (behavior_instance): create, change, delete, scene recall (`CreateRoom`, `CreateZone`, `UpdateGroup`, `CreateScene`, `UpdateScene`, `RecallScene`, `CreateBehavior`, `UpdateBehavior`) | yes |
-| Typed views of light, room and zone, grouped_light, scene, device, behavior_instance and entertainment_configuration (`As`, `ListAs`), next to the maps | yes |
+| Typed views (`As`, `ListAs`), next to the maps: light (with alert, effects, gradient), room and zone, grouped_light, scene, device, behavior_instance, entertainment_configuration; motion, camera_motion, grouped_motion, temperature, light_level, grouped_light_level, button, relative_rotary, contact, tamper, device_power, zigbee_connectivity, zgp_connectivity, entertainment, bridge, bridge_home, smart_scene, behavior_script, device_software_update, geolocation, homekit, matter, geofence_client; `Value`/`Event`/`Open` helpers that prefer the newer report fields | yes |
+| API v1 rules, schedules, resource links and sensors, typed (`V1Rule`, `V1Schedule`, `V1ResourceLink`, `V1Sensor`): list, read, create, change, delete; CLIP sensors created and their state set; sensor configuration | yes |
+| API v1 light and sensor search (`SearchLights`, `NewLights`, `SearchSensors`, `NewSensors`), light rename, identify and delete; the whole configuration (`Config`, `UpdateConfig`), whitelist removal (`DeleteUser`), `Capabilities`, `FullState`; API v1 error types in `APIError.Codes` | yes |
+| API v1 on square bridges over HTTPS with the certificate check (`Client.APIv1`) | yes |
+| Software update through API v1 (`SoftwareUpdate`, `CheckForUpdate`, `InstallUpdate`, `SetAutoInstall`) | yes, tested against the simulator only (see Not yet) |
 | Event stream: SSE framing, add, update, delete; `Merge` applies partial resources | yes |
 | Pairing: application key and client key; plain HTTP fallback for API v1 bridges; the application ID of a key (`ApplicationID`, GET /auth/v1) | yes |
 | Certificate check: common name is the bridge ID, chain against given roots, pinning callback, accept-or-refuse callback; `RootsFromPEM` and `LoadRoots` for the Hue root CA | yes; the root CA itself is not shipped (see below) |
@@ -32,8 +36,8 @@ Not affiliated with Philips or Signify (see NOTICE).
 | API v1: lights, rooms, zones, light groups (LightGroup, Luminaire, LightSource as type `light_group`), entertainment groups (as `entertainment_configuration`, start and stop), group and light scenes, the home (group 0 as `bridge_home` with its grouped light), motion, temperature, light level, switches, battery, as CLIP v2-shaped resources; light, group, scene, room and zone changes; creating and deleting rooms, zones and scenes; button presses and motion between polls as events | yes; behaviours have no API v1 form and are refused |
 | Discovery: multicast DNS `_hue._tcp` (bridge ID and model from TXT) and the public endpoint, merged (`hue/discover`) | yes, a module of its own (uses github.com/cB-Sigma/mdns) |
 | Entertainment streaming: HueStream version 2 frames (RGB and XY), DTLS 1.2 with TLS_PSK_WITH_AES_128_GCM_SHA256, application ID as PSK identity, client key as key, start and stop through CLIP v2, resend of the last frame (`hue/entertainment`) | yes, a module of its own (uses pion/dtls); version 1 frames are read (`ParseV1`), not sent |
-| SSDP discovery | no; bridges announce by mDNS, which `hue/discover` covers |
-| The remote (cloud) API, firmware update | no (see Not yet) |
+| SSDP discovery for the round bridge and old firmware (`discover.SSDP`, `ParseSSDP`, `Bridge.HTTPAddr`; opt-in in `All` with `Options.SSDP`), pure Go | yes |
+| The remote (cloud) API | no (see Not yet) |
 
 ### Not yet
 
@@ -43,7 +47,14 @@ Not affiliated with Philips or Signify (see NOTICE).
 - A run against a real bridge, square and round, with the real Hue root
   CA chain: it needs the hardware. Every run so far was against diyHue
   and this repository's simulator.
-- Firmware update requests: they cannot be tried without hardware.
+- Software update on a real bridge: `CheckForUpdate`, `InstallUpdate`
+  and `SetAutoInstall` send the documented API v1 configuration changes
+  and were run only against the hue-sim simulator (diyHue would
+  fetch its own update from GitHub, so it was only read); trying them
+  needs a bridge that may be updated.
+- Smart scenes, geofencing and the other CLIP v2 types without a helper
+  are reached through `Post`, `Put` and `Delete` with map bodies; typed
+  create helpers exist for rooms, zones, scenes and behaviours only.
 
 ### The Hue root CA
 
@@ -60,19 +71,20 @@ and Signify.
 ## Choosing a Go Hue library
 
 Compared from each library's source at the version named, downloaded and
-searched on 2026-10-11. Check the projects themselves before relying on
-a row.
+searched on 2026-10-11 and checked again on 2026-10-12 (the latest
+versions on proxy.golang.org were unchanged). Check the projects
+themselves before relying on a row.
 
-| | this module | openhue/openhue-go v0.4.0 | amimof/huego v1.2.1 | Collinux/gohue 1.0 |
+| | this module | openhue/openhue-go v0.4.0 | amimof/huego v1.2.1 | Collinux/gohue (last commit 5684411, 2019-12-09) |
 |---|---|---|---|---|
-| Latest release | v0.2.0 (2026-10-11) | 2025-04-16 | 2021-12-15 | 2018-12-29; archived |
-| CLIP v2 resources | yes, any type, as JSON maps, with typed views of eight common types | yes, typed (generated from an OpenAPI description) | no | no |
-| Creating and deleting | CLIP v2 rooms, zones, scenes, behaviours (and any type through `Post`/`Delete`); API v1 rooms, zones, scenes | generated client: POST and DELETE of the types its description lists | API v1: groups, scenes, rules, schedules, sensors, resource links | not checked |
+| Latest release | v0.3.0 (2026-10-11) | 2025-04-16 | 2021-12-15 | 2018-12-29 tag; archived |
+| CLIP v2 resources | yes, any type, as JSON maps, with typed views of 31 resource types | yes, typed (generated from an OpenAPI description) | no | no |
+| Creating and deleting | CLIP v2 rooms, zones, scenes, behaviours (and any type through `Post`/`Delete`); API v1 rooms, zones, scenes, rules, schedules, resource links, CLIP sensors | generated client: POST and DELETE of the types its description lists | API v1: groups, scenes, rules, schedules, sensors, resource links | API v1: scenes and schedules created; lights and users deleted |
 | Event stream | yes | no | no | no |
-| API v1 | yes, as CLIP v2-shaped resources | no | yes, typed | yes, typed |
+| API v1 | yes: lights, groups and scenes as CLIP v2-shaped resources; rules, schedules, resource links, sensors, search, configuration, whitelist, capabilities typed; also over HTTPS on square bridges | no | yes, typed: the same set, without setting a CLIP sensor's state, the software update flags or HTTPS | yes, typed: lights, groups, scenes, sensors (read), schedules, new-light search |
 | Pairing with a client key | yes | yes | yes | no client key |
 | TLS to the bridge | checks the bridge ID as common name; roots, pin and accept callbacks | turns off verification on `http.DefaultTransport`, process-wide | plain HTTP | plain HTTP |
-| Discovery | mDNS and the public endpoint (`hue/discover`) | mDNS and the public endpoint | the public endpoint | the public endpoint |
+| Discovery | mDNS, SSDP and the public endpoint (`hue/discover`) | mDNS and the public endpoint | the public endpoint | the public endpoint |
 | Entertainment streaming | yes, DTLS in pure Go (`hue/entertainment`) | starts and stops a configuration; no stream | turns a group's stream flag on and off; no stream | no |
 | `context.Context` | yes | generated client yes; the `Home` helpers no | yes (`…Context` variants) | no |
 | Dependencies | core: standard library; `hue/discover`: cB-Sigma/mdns; `hue/entertainment`: pion/dtls | oapi-codegen runtime, grandcat/zeroconf and others | standard library | standard library |
@@ -83,9 +95,8 @@ through the event stream, keep certificate decisions under its own
 control, serve round bridges, or stream to an entertainment area. Pick
 openhue/openhue-go for typed models of every CLIP v2 type its
 description covers, generated rather than written by hand, and
-amimof/huego for an existing API v1 code base that uses rules and
-schedules. This module's typed views cover the common types; other
-types stay maps.
+amimof/huego for an existing API v1 code base written against its
+types. This module's typed views cover 31 resource types; others stay maps.
 
 ## Install
 
@@ -134,6 +145,19 @@ _ = s.Close(ctx)                                     // also stops the area
 found, _ := discover.All(ctx, discover.Options{})
 ```
 
+Rules, schedules and CLIP sensors (API v1; square bridges answer it over
+HTTPS, through the same certificate check):
+
+```go
+v1 := c.APIv1()
+away, _ := v1.CreateSensor(ctx, hue.V1Sensor{Name: "Away", Type: "CLIPGenericFlag",
+	ModelID: "MYAPP01", SWVersion: "1.0", ManufacturerName: "Me", UniqueID: "myapp-away"})
+_, _ = v1.CreateRule(ctx, hue.V1Rule{Name: "Away off",
+	Conditions: []hue.V1Condition{{Address: "/sensors/" + away + "/state/flag", Operator: "eq", Value: "true"}},
+	Actions:    []hue.V1Action{{Address: "/groups/0/action", Method: "PUT", Body: map[string]any{"on": false}}}})
+_ = v1.SetSensorState(ctx, away, map[string]any{"flag": true}) // the bridge runs the rule
+```
+
 For a bridge that `NeedsV1` (from `ReadV1Config`), set
 `c.V1 = hue.NewV1Client(address, key, nil)`: the same `List` and `Put`
 calls are then served from API v1, and `c.V1.TakeEvents()` gives the
@@ -156,9 +180,9 @@ API reference: https://pkg.go.dev/github.com/cB-Sigma/hue
 
 | Package | What it does |
 |---|---|
-| `hue` (module root) | `Client` (`Do`, `List`, `Get`, `Put`, `Post`, `Delete`, `Events`, `Pair`, `ApplicationID`, the create and update helpers, `StartEntertainment`/`StopEntertainment`), `Resource`/`Ref`/`Merge`, typed views (`Light`, `Group`, `Scene`, …, `As`, `ListAs`), `Event`/`ReadEvents`, `TLSCheck`, `RootsFromPEM`/`LoadRoots`, `ReadConfig`/`ReadV1Config`/`NeedsV1`, `V1Client`, `V1State`, `V1ButtonEvent`, `LuxFromLightLevel`, `NormaliseBridgeID` |
+| `hue` (module root) | `Client` (`Do`, `List`, `Get`, `Put`, `Post`, `Delete`, `Events`, `Pair`, `ApplicationID`, the create and update helpers, `StartEntertainment`/`StopEntertainment`, `APIv1`), `Resource`/`Ref`/`Merge`, typed views (`Light`, `Group`, `Scene`, `Motion`, `Temperature`, `LightLevel`, `Button`, `RelativeRotary`, `Contact`, `SmartScene`, …, `As`, `ListAs`), `Event`/`ReadEvents`, `TLSCheck`, `RootsFromPEM`/`LoadRoots`, `ReadConfig`/`ReadV1Config`/`NeedsV1`, `V1Client` (CLIP-shaped `Do`, and `Rules`, `Schedules`, `ResourceLinks`, `Sensors` with their create, update and delete calls, `SetSensorState`, `SetSensorConfig`, `SearchLights`/`NewLights`, `SearchSensors`/`NewSensors`, `Config`, `UpdateConfig`, `DeleteUser`, `Capabilities`, `FullState`, `SoftwareUpdate`, `CheckForUpdate`, `InstallUpdate`), `V1Address`, `APIError` (with `Codes`, `HasCode`), `V1State`, `V1ButtonEvent`, `LuxFromLightLevel`, `NormaliseBridgeID` |
 | `entertainment` (nested module github.com/cB-Sigma/hue/entertainment) | `Frame`, `Parse`, `ParseV1`, `RGBChannel`, `XYChannel`, `RGBToXY`, `Dial`/`Stream`, `Open`/`Session` |
-| `discover` (nested module github.com/cB-Sigma/hue/discover) | `MDNS`, `Cloud`, `All`, `Merge`, `Announcement` |
+| `discover` (nested module github.com/cB-Sigma/hue/discover) | `MDNS`, `SSDP`, `ParseSSDP`, `Cloud`, `All`, `Merge`, `Announcement`, `Bridge.HTTPAddr` |
 | `interop` (nested module, tests only) | this client against diyHue in Docker |
 
 ## Testing
@@ -169,11 +193,13 @@ go test -race ./...
 (cd discover && go test -race ./...)
 ```
 
-The unit tests run against a small fake bridge in fake_test.go;
+The unit tests run against a small fake bridge in fake_test.go and an
+API v1 store in v1store_test.go (plain HTTP and HTTPS);
 `entertainment` tests its frames and its DTLS client against an
 in-process pion/dtls PSK server; `discover` tests the endpoint against a
-fake and multicast DNS over the loopback interface (skipped where
-multicast does not come back to the host). The
+fake, SSDP against a responder on the loopback interface, and multicast
+DNS over the loopback interface (skipped where multicast does not come
+back to the host). The
 client's tests against the full simulator are in
 [hue-sim](https://github.com/cB-Sigma/hue-sim), so this module does not
 depend on its simulator. One test carries a `// Covers: SIG-...` comment:
@@ -227,6 +253,28 @@ cd interop && SIGMA_HUE_INTEROP=1 go test -v ./...
   IDs work for its GET, PUT and DELETE, and `Get` returns the one
   resource it answers. diyHue reads frames in fixed-size pieces, so a
   frame must carry every channel of the configuration.
+- The same image (digest above), 2026-10-12, for the v0.3.0 additions,
+  all passed, together with a rerun of every earlier test (all passed):
+  a rule created with `CreateRule` (dx on a zone's any_on, setting the
+  lamp's brightness) that diyHue ran when the zone was switched, read
+  back, disabled with `UpdateRule`, listed over plain HTTP and over
+  HTTPS through `APIv1` with the certificate check, and deleted (then
+  answered with error type 3); a timer schedule (`PT00:00:03`) that
+  diyHue ran on the first attempt, changed and deleted; a resource link
+  created, changed, read and deleted; a sensor read, renamed and its
+  configuration changed; the configuration with the whitelist read and
+  the bridge renamed; a second key paired, removed with `DeleteUser` and
+  then refused; `Capabilities`; the software update state read; a light
+  search started and its result read (diyHue scans its network in the
+  background; nothing was found); SSDP: `discover.SSDP` sent to
+  diyHue's SSDP responder (UDP 1900 of the container) found the bridge
+  with its ID and location.
+- Found in that run, recorded and not judged: diyHue answers every
+  POST /sensors with its device search, so it cannot create a CLIP
+  sensor (`CreateSensor` returns `ErrNoReference` there); creating,
+  setting and deleting CLIP sensors, rules that run on them, and the
+  software update requests were therefore exercised against hue-sim
+  only (and CLIP sensors by aiohue against hue-sim, see there).
 - diyHue keeps each event for well under a second and its stream polls
   on a timer, so a just-opened stream sometimes misses a change; the
   test repeats the change up to five times, and in some runs the event
@@ -241,8 +289,9 @@ cd interop && SIGMA_HUE_INTEROP=1 go test -v ./...
   hue-sim.
 - Not yet: a real Hue bridge (square or round), the Hue root CA chain,
   firmware-specific behaviour, entertainment streaming to a real bridge
-  (diyHue's DTLS server is OpenSSL, a bridge's is its own), the remote
-  API.
+  (diyHue's DTLS server is OpenSSL, a bridge's is its own), software
+  update on a bridge, SSDP over real multicast to a round bridge, the
+  remote API.
 
 ## Related repositories
 

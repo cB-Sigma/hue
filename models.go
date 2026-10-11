@@ -100,6 +100,34 @@ type Light struct {
 	Color            *Colour            `json:"color,omitempty"`
 	Dynamics         *Dynamics          `json:"dynamics,omitempty"`
 	Mode             string             `json:"mode,omitempty"`
+	// Alert lists the alert actions the light takes (breathe).
+	Alert *struct {
+		ActionValues []string `json:"action_values"`
+	} `json:"alert,omitempty"`
+	// Effects is the light's current effect and those it can show
+	// (candle, fire, sparkle, …).
+	Effects *struct {
+		Status       string   `json:"status"`
+		EffectValues []string `json:"effect_values,omitempty"`
+		StatusValues []string `json:"status_values,omitempty"`
+	} `json:"effects,omitempty"`
+	// Gradient is the colour points of a gradient light.
+	Gradient *struct {
+		Points []struct {
+			Color struct {
+				XY XY `json:"xy"`
+			} `json:"color"`
+		} `json:"points"`
+		PointsCapable int      `json:"points_capable"`
+		Mode          string   `json:"mode,omitempty"`
+		ModeValues    []string `json:"mode_values,omitempty"`
+		PixelCount    int      `json:"pixel_count,omitempty"`
+	} `json:"gradient,omitempty"`
+	// Powerup is what the light does when power returns; TimedEffects
+	// and Signaling are kept as the bridge sends them.
+	Powerup      map[string]any `json:"powerup,omitempty"`
+	TimedEffects map[string]any `json:"timed_effects,omitempty"`
+	Signaling    map[string]any `json:"signaling,omitempty"`
 }
 
 // Group is a room or a zone.

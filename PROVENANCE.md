@@ -35,6 +35,24 @@ and how it runs its DTLS server. The sRGB to CIE xy conversion uses the
 sRGB matrix of IEC 61966-2-1, a published standard; no Hue-specific
 gamut code was taken.
 
+v0.3.0 (2026-10-11 to 2026-10-12) added, written for this module: the
+API v1 calls without a CLIP v2 form (v1api.go), the typed views of the
+sensor, switch, connectivity, bridge and automation resources
+(models_services.go), the error types in `APIError`, and SSDP in
+`discover/` (ssdp.go). The set of API v1 calls was chosen by comparing
+with amimof/huego v1.2.1 (MIT): its exported method names and the JSON
+field names of its rule, schedule, resource link, sensor, configuration
+and capability types were read to see what a Go user expects; no code
+or text was taken, and the request shapes follow the API v1
+documentation. Collinux/gohue (GPL-2.0, last commit 5684411) was read
+only for the names of its exported methods, for the comparison table.
+The field names of the new typed views were cross-checked against
+aiohue 4.9.0's models (Apache-2.0, v2/models/*.py) and the openhue-api
+description; nothing was copied. The SSDP answer (LOCATION, SERVER with
+IpBridge, hue-bridgeid, the MAC at the end of the USN) follows the
+public Hue discovery documentation; diyHue's services/ssdp.py at commit
+3ee0461 was read to plan the interop test against its responder.
+
 Before the split, existing Go libraries were checked and not used:
 openhue/openhue-go (Apache-2.0; a generated CLIP v2 client without the
 event stream or API v1), amimof/huego (MIT; API v1 only) and
@@ -54,7 +72,9 @@ the versions it names.
 | API v1 (v1.go) | Philips Hue API v1 documentation (lights, groups, sensors, scenes, configuration, error types, buttonevent codes) | none |
 | Creation and deletion, typed views (create.go, models.go) | Philips Hue API v2 documentation, resource pages as far as public | openhue-api OpenAPI description (Apache-2.0), commit 1ffc817: field names cross-checked, nothing copied or generated |
 | Entertainment (entertainment/) | Philips Hue developer documentation on the Entertainment API (as far as public); pion/dtls API documentation | diyHue BridgeEmulator/services/entertainment.py at commit 3ee0461 (Apache-2.0): frame sizes and the openssl s_server parameters it uses, read to plan the interop test; aiohue's entertainment models (Apache-2.0): field names |
-| Discovery (discover/) | the bridge's mDNS announcement (_hue._tcp, TXT bridgeid and modelid) and the public endpoint's answer (id, internalipaddress, port) as documented on the Hue developer site | none |
+| Discovery (discover/) | the bridge's mDNS announcement (_hue._tcp, TXT bridgeid and modelid), its SSDP answer (UPnP 1.0 M-SEARCH; LOCATION, SERVER, hue-bridgeid, USN) and the public endpoint's answer (id, internalipaddress, port) as documented on the Hue developer site | diyHue services/ssdp.py at commit 3ee0461 (Apache-2.0): which answers its responder sends, for the interop test |
+| API v1 rules, schedules, resource links, sensors, search, configuration, capabilities, software update (v1api.go) | Philips Hue API v1 documentation (rules, schedules, resource links, sensors, lights, configuration, capabilities) | amimof/huego v1.2.1 (MIT): exported method names and JSON field names, to choose the set of calls; Collinux/gohue (GPL-2.0): exported method names only; diyHue flaskUI/restful.py, functions/rules.py, services/scheduler.py at 3ee0461: how it answers, to plan the interop test |
+| Typed sensor and service views (models_services.go) | Philips Hue API v2 documentation, resource pages as far as public | aiohue 4.9.0 v2/models (Apache-2.0) and openhue-api (Apache-2.0): field names cross-checked |
 
 Parts of the API v2 documentation need a developer account and were not
 read for this work. The facts the client relies on that only those pages
@@ -104,6 +124,13 @@ diyHue's source at that commit was read (services/entertainment.py,
 flaskUI/v2restapi.py, HueObjects/EntertainmentConfiguration.py and
 BehaviorInstance.py) only to learn what its endpoints expect; nothing
 was taken from it.
+
+The v0.3.0 run (2026-10-12, same image) passed rules (run by diyHue),
+a timer schedule (run by diyHue), resource links, sensor reads and
+changes, the configuration, whitelist removal, capabilities, the light
+search, API v1 over HTTPS and SSDP against diyHue's responder. It found
+that diyHue cannot create CLIP sensors (it answers POST /sensors with
+its device search); the README records it.
 
 ## The Hue root CA
 

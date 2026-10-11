@@ -135,6 +135,20 @@ type APIError struct {
 	Status int
 	// Desc are the error descriptions the answer carried.
 	Desc []string
+	// Codes are the API v1 error types of the answer (3 for a resource
+	// that is not there, 6 for an unknown parameter, 7 for a wrong value,
+	// …), in the order of Desc; empty for CLIP v2 answers.
+	Codes []int
+}
+
+// HasCode tells whether the answer carried the API v1 error type code.
+func (e *APIError) HasCode(code int) bool {
+	for _, c := range e.Codes {
+		if c == code {
+			return true
+		}
+	}
+	return false
 }
 
 // Error names the HTTP status and the descriptions.

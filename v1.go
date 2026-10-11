@@ -240,6 +240,7 @@ func (a *V1Client) Request(ctx context.Context, method, path string, body any) (
 				return nil, fmt.Errorf("%w (API v1 error 1)", ErrUnauthorized)
 			}
 			e.Desc = append(e.Desc, strings.ReplaceAll(it.Error.Description, a.key, "…"))
+			e.Codes = append(e.Codes, it.Error.Type)
 		}
 		if len(e.Desc) > 0 {
 			return b, e

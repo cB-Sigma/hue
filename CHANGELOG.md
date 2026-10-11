@@ -3,6 +3,54 @@
 All notable changes to this module. Versions follow semantic versioning;
 before v1 the API may change in minor versions.
 
+## v0.3.0 (2026-10-11)
+
+### Added
+
+- API v1 beyond the CLIP-shaped resources, on `V1Client` (v1api.go):
+  rules (`Rules`, `Rule`, `CreateRule`, `UpdateRule`, `DeleteRule`,
+  `V1Rule`, `V1Condition`, `V1Action`), schedules (`Schedules`,
+  `Schedule`, `CreateSchedule`, `UpdateSchedule`, `DeleteSchedule`,
+  `V1Schedule`), resource links (`ResourceLinks`, `ResourceLink`,
+  `CreateResourceLink`, `UpdateResourceLink`, `DeleteResourceLink`,
+  `V1ResourceLink`), sensors (`Sensors`, `Sensor`, `CreateSensor` for
+  CLIP sensors, `RenameSensor`, `SetSensorState`, `SetSensorConfig`,
+  `DeleteSensor`, `V1Sensor`), the search (`SearchLights`, `NewLights`,
+  `SearchSensors`, `NewSensors`, `V1NewDevices`), lights (`RenameLight`,
+  `IdentifyLight`, `DeleteLight`), the configuration (`Config`,
+  `V1BridgeConfig`, `UpdateConfig`, `DeleteUser`, `V1WhitelistEntry`),
+  `Capabilities` (`V1Capabilities`, `V1Capacity`), `FullState`, and the
+  software update flags (`SoftwareUpdate`, `CheckForUpdate`,
+  `InstallUpdate`, `SetAutoInstall`, `V1SoftwareUpdate`; tested against
+  the simulator only).
+- `Client.APIv1`: API v1 over the client's HTTPS connection and
+  certificate check, for square bridges.
+- `V1Address`: the v1 address of a CLIP-shaped ID made by `V1Client`.
+- `APIError.Codes` (the API v1 error types) and `APIError.HasCode`.
+- Typed views (models_services.go): `Motion`, `CameraMotion`,
+  `GroupedMotion`, `Temperature`, `LightLevel`, `GroupedLightLevel`,
+  `Button`, `RelativeRotary`, `Contact`, `Tamper`, `DevicePower`,
+  `ZigbeeConnectivity`, `ZGPConnectivity`, `EntertainmentService`,
+  `Bridge`, `BridgeHome`, `SmartScene`, `BehaviorScript`,
+  `DeviceSoftwareUpdate`, `Geolocation`, `Homekit`, `Matter`,
+  `GeofenceClient` and their parts, with `Value`, `Event` and `Open`
+  helpers; `Light` gained `Alert`, `Effects`, `Gradient`, `Powerup`,
+  `TimedEffects` and `Signaling`.
+- hue/discover: SSDP (`SSDP`, `SSDPOptions`, `SSDPAddr`, `ParseSSDP`,
+  `SourceSSDP`, `DefaultSSDPWait`), `Bridge.Location`,
+  `Bridge.HTTPAddr`, and `Options.SSDP`/`Options.SSDPOptions` to add it
+  to `All` (off by default, so `All` searches as before).
+- interop/: rules, schedules, resource links, sensors, configuration,
+  whitelist, capabilities, search, API v1 over HTTPS and SSDP against
+  diyHue. The interop module now needs Go 1.27.1 (it uses hue/discover).
+
+### Changed
+
+- `APIError` has a new field (`Codes`); composite literals of it without
+  field names no longer compile.
+- `V1Client` reads the bridge again after any change made through it
+  (it already did after CLIP-shaped changes).
+
 ## v0.2.0 (2026-10-11)
 
 ### Added

@@ -5,7 +5,8 @@
 // _hue._tcp service bridges announce, with their bridge ID and model in
 // TXT), through the public discovery endpoint (discovery.meethue.com,
 // which lists the bridges that reported from the caller's public
-// address), or both at once. It returns addresses and bridge IDs; check a
+// address), by SSDP (the UPnP search the round bridge and old firmware
+// answer), or several at once. It returns addresses and bridge IDs; check a
 // found bridge with hue.ReadConfig or hue.ReadV1Config before trusting
 // it, and connect with the bridge ID as the certificate's expected name.
 //
@@ -61,6 +62,9 @@ type Bridge struct {
 	Name string
 	// ModelID is the model the announcement named (BSB002, …).
 	ModelID string
+	// Location is the bridge's UPnP description URL from an SSDP answer
+	// ("" from the other sources); HTTPAddr uses its host and port.
+	Location string
 	// Sources are where the bridge was found.
 	Sources []Source
 }
@@ -155,9 +159,14 @@ type Options struct {
 	HTTPClient *http.Client
 	CloudURL   string
 	NoCloud    bool
+	// SSDP adds an SSDP search (for round bridges and old firmware, which
+	// mDNS does not find), with SSDPOptions.
+	SSDP        bool
+	SSDPOptions SSDPOptions
 }
 
-// All runs both searches at once and merges what they found by bridge ID
+// All runs the searches at once (multicast DNS and the endpoint, and SSDP
+// when asked) and merges what they found by bridge ID
 // (or, without one, by address). It fails only when every search that
 // ran failed; the errors are joined.
 func All(ctx context.Context, o Options) ([]Bridge, error) {
@@ -188,6 +197,9 @@ func All(ctx context.Context, o Options) ([]Bridge, error) {
 	}
 	if !o.NoCloud {
 		run(func() ([]Bridge, error) { return Cloud(ctx, o.HTTPClient, o.CloudURL) })
+	}
+	if o.SSDP {
+		run(func() ([]Bridge, error) { return SSDP(ctx, o.SSDPOptions) })
 	}
 	wg.Wait()
 	if ran == 0 {
@@ -223,6 +235,9 @@ func Merge(lists ...[]Bridge) []Bridge {
 			}
 			if cur.ModelID == "" {
 				cur.ModelID = b.ModelID
+			}
+			if cur.Location == "" {
+				cur.Location = b.Location
 			}
 			for _, s := range b.Sources {
 				if !hasSource(cur.Sources, s) {

@@ -26,6 +26,17 @@ openhue-api OpenAPI description (github.com/openhue/openhue-api, commit
 1ffc817 of 2026-04-15; Apache-2.0, Copyright the openhue authors). No
 text or code was copied and nothing was generated from it.
 
+The typed views in models_services.go were written for this module.
+Their field names follow the bridge's JSON and were cross-checked
+against the openhue-api description and the models of aiohue 4.9.0
+(github.com/home-assistant-libs/aiohue; Apache-2.0, Copyright the
+aiohue authors). No text or code was copied.
+
+The set of API v1 calls in v1api.go was chosen after reading the
+exported method and field names of amimof/huego v1.2.1 (MIT, Copyright
+2017 amimof) and the exported method names of Collinux/gohue
+(GPL-2.0). No code or text of either was copied.
+
 Dependencies
 ------------
 

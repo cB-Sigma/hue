@@ -31,9 +31,16 @@
 //   - V1Client: API v1, turned into CLIP v2-shaped resources so one model
 //     serves both (rooms, zones, light groups, entertainment groups, group
 //     and light scenes); button presses and motion are told from changes
-//     between polls.
+//     between polls. It also serves what CLIP v2 has no form for: rules,
+//     schedules, resource links, sensors (CLIP sensors created and set),
+//     the search for new lights and sensors, the configuration and its
+//     whitelist, capabilities and the software update flags; Client.APIv1
+//     reaches the same calls on a square bridge over HTTPS.
+//   - Motion, Temperature, LightLevel, Button, RelativeRotary, Contact,
+//     DevicePower, ZigbeeConnectivity, Bridge, BridgeHome, SmartScene and
+//     more: typed views of the sensor, switch and service resources.
 //
-// Discovery (multicast DNS _hue._tcp and the public discovery endpoint)
+// Discovery (multicast DNS _hue._tcp, SSDP and the public discovery endpoint)
 // is in the module github.com/cB-Sigma/hue/discover, entertainment
 // streaming (DTLS) in github.com/cB-Sigma/hue/entertainment; both are
 // modules of their own so this one needs only the standard library.
